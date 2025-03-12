@@ -96,7 +96,8 @@ x,y,z = fibonacci_sphere(N_sphere_points)
 
 n_project = N_sphere_points
 
-filename = 'proj_data_NIHAOandAURIGA_noPDF_SPH' + str(n_process) + '.csv'
+filename = f"proj_data_NIHAOandAURIGA_noPDF_SPH{n_process}.csv"
+exceptions_file_path = main_file_folder + f"Logs/exceptions{n_process}.txt"
 
 n_gals = len(paths)
 
@@ -256,10 +257,16 @@ for i in range(startindex, endindex):
             
             xmax = 1
 
-            Xcount[project,:,:]   = pb.plot.sph.image(h1.s, qty='mass',     units = 'Msol',       width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
-            Xmeanvel[project,:,:] = pb.plot.sph.image(h1.s, qty='vz',       units = 'km s**-1',   width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
-            Xstd[project,:,:]     = pb.plot.sph.image(h1.s, qty='v_disp',  units = 'km s**-1',   width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
-            XDMmass[project,:,:]  = pb.plot.sph.image(h1.d, qty='mass',     units = 'Msol',       width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
+            try:
+              Xcount[project,:,:]   = pb.plot.sph.image(h1.s, qty='mass',     units = 'Msol',       width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
+              Xmeanvel[project,:,:] = pb.plot.sph.image(h1.s, qty='vz',       units = 'km s**-1',   width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
+              Xstd[project,:,:]     = pb.plot.sph.image(h1.s, qty='v_disp',  units = 'km s**-1',   width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
+              XDMmass[project,:,:]  = pb.plot.sph.image(h1.d, qty='mass',     units = 'Msol',       width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
+            except Exception as e:
+                error_message = f"Exception at galaxy {galname}, projection {project} with hlr {hlr_proj_cumsum}, which has {n_stars} stars: {e}\n"
+                with open(exceptions_file_path, "w") as log_file:
+                  log_file.write(error_message)
+                  print(error_message) 
 
 
 
