@@ -28,14 +28,25 @@ class CustomDataset(Dataset):
         data = {name_root: [] for name_root in self.name_roots}
         
         for i in range(1, self.N + 1):
-            indices = np.random.choice(self.N_total_aug, self.N_aug, replace=False)
+            valid_indices = set(range(self.N_total_aug))
+            selected_indices = set()
             for name_root in self.name_roots:
                 file_path = os.path.join(self.folder_path, f"{name_root}{i}.npy")
                 if os.path.exists(file_path):
                     array = np.load(file_path)  # Shape: (32, 48, 48)
-                    # Randomly select N_aug augmentations
-                    selected_augmentations = array[indices]  # Shape: (N_aug, 48, 48)
-                    data[name_root].append(selected_augmentations)
+                    selected_augmentations = []
+                    while len(selected_augmentations) < self.N_aug:
+                        remaining_indices = list(valid_indices - selected_indices)
+                        if not remaining_indices:
+                            break
+                        indices = np.random.choice(remaining_indices, self.N_aug - len(selected_augmentations), replace=False)
+                        for idx in indices:
+                            if not np.isnan(array[idx]).any():
+                                selected_augmentations.append(array[idx])
+                                selected_indices.add(idx)
+                            if len(selected_augmentations) == self.N_aug:
+                                break
+                    data[name_root].append(np.array(selected_augmentations))
                 else:
                     print(f"File {file_path} not found.")
         
