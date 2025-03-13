@@ -4,6 +4,20 @@ import torch
 from torch.utils.data import Dataset
 import matplotlib.pyplot as plt
 from score_models import ScoreModel, NCSNpp
+from tqdm import tqdm
+import numpy.ma as ma
+
+def minmaxnorm(arr, accept_nans = False):
+    if accept_nans:
+        return (arr-np.nanmin(arr))/(np.nanmax(arr)-np.nanmin(arr))
+    else:
+        return (arr-np.min(arr))/(np.max(arr)-np.min(arr))
+
+def stdnorm(arr, accept_nans = False):
+    if accept_nans:
+        return (arr-np.nanmean(arr))/np.nanstd(arr)
+    else:
+        return (arr-np.mean(arr))/np.std(arr)
 
 
 class CustomDataset(Dataset):
@@ -20,33 +34,32 @@ class CustomDataset(Dataset):
         self.name_roots = name_roots
         self.N = N
         self.N_aug = N_aug
-        self.N_total_aug = N_total_aug
         self.device = device
         self.data = self._load_data()
 
     def _load_data(self):
         data = {name_root: [] for name_root in self.name_roots}
         
-        for i in range(1, self.N + 1):
-            valid_indices = set(range(self.N_total_aug))
+        
+        for i in tqdm(range(1, self.N + 1)):
             selected_indices = set()
             for name_root in self.name_roots:
+                selected_augmentations = []
                 file_path = os.path.join(self.folder_path, f"{name_root}{i}.npy")
                 if os.path.exists(file_path):
                     array = np.load(file_path)  # Shape: (32, 48, 48)
-                    selected_augmentations = []
-                    while len(selected_augmentations) < self.N_aug:
-                        remaining_indices = list(valid_indices - selected_indices)
-                        if not remaining_indices:
-                            break
-                        indices = np.random.choice(remaining_indices, self.N_aug - len(selected_augmentations), replace=False)
+                    valid_indices = list(np.where(np.all(~np.isnan(array), axis = (1,2)))[0])
+                    if name_root == self.name_roots[0]:
+                        indices = np.random.choice(list(valid_indices), np.min((self.N_aug, len(valid_indices))), replace=False)
                         for idx in indices:
-                            if not np.isnan(array[idx]).any():
-                                selected_augmentations.append(array[idx])
-                                selected_indices.add(idx)
-                            if len(selected_augmentations) == self.N_aug:
-                                break
-                    data[name_root].append(np.array(selected_augmentations))
+                            selected_augmentations.append(array[idx])
+                            selected_indices.add(idx)
+                        if len(selected_augmentations) > 0:
+                            data[name_root].append(np.array(selected_augmentations))
+                    else:
+                        selected_augmentations = [array[idx] for idx in selected_indices]
+                        if len(selected_augmentations) > 0:
+                            data[name_root].append(np.array(selected_augmentations))
                 else:
                     print(f"File {file_path} not found.")
         
@@ -60,6 +73,7 @@ class CustomDataset(Dataset):
         self._postprocess_all_maps(data)
         
         return data
+    
 
     def _postprocess_all_maps(self, data):
         """
@@ -77,31 +91,25 @@ class CustomDataset(Dataset):
         # Postprocess each map
         for i in range(len(dm_maps)):
             # Count map: Divide by the maximum value in the map
-            count_maps[i] = count_maps[i] / np.nanmax(count_maps[i])
-            count_maps[i][np.isnan(count_maps[i])] = -2
+            count_maps[i] = minmaxnorm(count_maps[i])
             
             # DM map: Take the base 10 logarithm and divide by the maximum value in the map
             dm_maps[i] = np.log10(dm_maps[i])
-            dm_maps[i] = dm_maps[i] / np.nanmax(dm_maps[i])
-            dm_maps[i][~np.isfinite(dm_maps[i])] = -2
-            dm_maps[i][np.isnan(dm_maps[i])] = -2
-            
+            dm_maps[i] = minmaxnorm(dm_maps[i])
+
             # Vel map: Divide by the maximum absolute value across all vel maps and replace NaNs with -2
             #max_abs_vel = np.nanmax(np.abs(vel_maps))
             #vel_maps[i] = vel_maps[i] / max_abs_vel
-            vel_maps[i] = vel_maps[i] / np.nanmax(np.abs(vel_maps[i]))
-            vel_maps[i][np.isnan(vel_maps[i])] = -2
-            vel_maps[i][~np.isfinite(vel_maps[i])] = -2
-            
+            vel_maps[i] = minmaxnorm(vel_maps[i])
+
             # Std map: Divide by the maximum absolute value across all std maps and replace NaNs with -2
             #max_abs_std = np.nanmax(np.abs(std_maps))
             #std_maps[i] = std_maps[i] / max_abs_std
-            std_maps[i] = std_maps[i] / np.nanmax(np.abs(std_maps[i]))
-            std_maps[i][np.isnan(std_maps[i])] = -2
-            std_maps[i][~np.isfinite(std_maps[i])] = -2
+            std_maps[i] = minmaxnorm(std_maps[i])
+
 
     def __len__(self):
-        return self.N * self.N_aug
+        return len(self.data[self.name_roots[0]])
 
     def __getitem__(self, idx):
         # Get DMmap as 1x48x48 tensor
@@ -168,15 +176,21 @@ def plot_dataset_element(dataset, idx, cmap='viridis'):
     plt.show()
 
 
+#folder_path = '/home/jsarrato/Physics/PhD/Paper-DiffusionDM/Maps_Dispersion_NIHAO_noPDF_DMmap_SPH'
 # Example usage:
-folder_path = '/net/debut/scratch/jsarrato/Wolf_for_FIRE/work/Maps_Dispersion_NIHAO_noPDF_DMmap'
-name_roots = ['file_Xvel', 'file_Xcount', 'file_XDMmass', 'file_Xstd']
-N = 1000  # Number of files to read for each type
+folder_path = '/net/debut/scratch/jsarrato/Wolf_for_FIRE/work/Maps_Dispersion_NIHAO_noPDF_DMmap_SPH'
+name_roots = ['file_XDMmass', 'file_Xvel', 'file_Xcount', 'file_Xstd']
+N = 500  # Number of files to read for each type
 N_aug = 32  # Number of augmentations to select from each file
 N_total_aug = 32
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 dataset = CustomDataset(folder_path, name_roots, N, N_aug, N_total_aug, device)
+
+print(np.any(np.isnan(dataset.data['file_XDMmass'])))
+print(np.any(np.isnan(dataset.data['file_Xvel'])))
+print(np.any(np.isnan(dataset.data['file_Xcount'])))
+print(np.any(np.isnan(dataset.data['file_Xstd'])))
 
 # Example usage:
 # Assuming `dataset` is already created using the CustomDataset class
@@ -207,7 +221,7 @@ def preprocessing_fn(x):
 # Set the hyperparameters and other options for training
 learning_rate = 1e-6
 batch_size = 32
-epochs = 1
+epochs = 100
 checkpoints_directory = f"models_N{N}_N_aug{N_aug}_sigma{sigma}"
 checkpoints = 10 # save a checkpoint every 10 epochs
 models_to_keep = 1 # only keep one model, erase previous ones
@@ -252,39 +266,50 @@ for i, index_n in enumerate(random_indices):
         steps=1000,
         condition=[torch.tensor(np.repeat(dataset.__getitem__(index_n)[1].reshape(1, 3, 48, 48).cpu().numpy(), 100, axis=0)).to(device)]
     ).cpu().numpy()
-    
+
     # Calculate median and standard deviation of the samples
     median_prediction_1 = np.median(samples_el_1, axis=0)[0, :, :]
     std_prediction_1 = np.std(samples_el_1, axis=0)[0, :, :]
-    
+
     # Save the samples to a file
     samples_path = os.path.join(checkpoints_directory, f'samples_{i}.npy')
     np.save(samples_path, samples_el_1)
-    
+
     # Get the label map from the current element of the dataset
     label_map = dataset.__getitem__(index_n)[0].cpu().numpy().squeeze()
-    
+
     # Plot the label map, median prediction, and standard deviation prediction
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-    
+
+    # Function to calculate the lowest positive value in an image
+    def get_lowest_positive_value(image):
+        positive_values = image[image > 0]
+        return np.min(positive_values) if positive_values.size > 0 else 1.0  # Default to 1.0 if no positive values
+
     # Plot the label map
     ax = axes[0]
-    im = ax.imshow(label_map, cmap='viridis', interpolation='none')
+    vmin_label = get_lowest_positive_value(label_map)
+    masked_label_map = ma.masked_where(label_map <= 0, label_map)  # Mask non-positive values
+    im = ax.imshow(masked_label_map, cmap='viridis', interpolation='none', vmin=vmin_label)
     ax.set_title(f'Label Map (Index {index_n})')
     fig.colorbar(im, ax=ax, orientation='vertical')
-    
+
     # Plot the median prediction
     ax = axes[1]
-    im = ax.imshow(median_prediction_1, cmap='viridis', interpolation='none')
+    vmin_median = get_lowest_positive_value(median_prediction_1)
+    masked_median = ma.masked_where(median_prediction_1 <= 0, median_prediction_1)  # Mask non-positive values
+    im = ax.imshow(masked_median, cmap='viridis', interpolation='none', vmin=vmin_median)
     ax.set_title('Median Prediction')
     fig.colorbar(im, ax=ax, orientation='vertical')
-    
+
     # Plot the standard deviation prediction
     ax = axes[2]
-    im = ax.imshow(std_prediction_1, cmap='viridis', interpolation='none')
+    vmin_std = get_lowest_positive_value(std_prediction_1)
+    masked_std = ma.masked_where(std_prediction_1 <= 0, std_prediction_1)  # Mask non-positive values
+    im = ax.imshow(masked_std, cmap='viridis', interpolation='none', vmin=vmin_std)
     ax.set_title('Standard Deviation Prediction')
     fig.colorbar(im, ax=ax, orientation='vertical')
-    
+
     # Save the comparison plot to the checkpoints directory
     comparison_plot_path = os.path.join(checkpoints_directory, f'comparison_plot_{i}.png')
     plt.savefig(comparison_plot_path)
