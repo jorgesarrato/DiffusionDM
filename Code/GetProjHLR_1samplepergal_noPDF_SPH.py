@@ -99,6 +99,9 @@ n_project = N_sphere_points
 filename = f"proj_data_NIHAOandAURIGA_noPDF_SPH{n_process}.csv"
 exceptions_file_path = main_file_folder + f"Logs/exceptions{n_process}.txt"
 
+with open(exceptions_file_path, "w") as log_file:
+  log_file.write("Exceptions when creating maps\n")
+
 n_gals = len(paths)
 
 
@@ -110,10 +113,6 @@ if n_process == n_processes:
 count = n_project * startindex
 current_path = ''
 current_halo = ''
-
-def fun(gkde):
-     return gkde.n**(-1./(gkde.d+4))/3
-
 
 r_array = np.arange(0.6,2.6,0.2)
 r_array = np.append(r_array,np.array([1.7])) # Amorisco & Evans
@@ -258,13 +257,13 @@ for i in range(startindex, endindex):
             xmax = 1
 
             try:
-              Xcount[project,:,:]   = pb.plot.sph.image(h1.s, qty='mass',     units = 'Msol',       width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
-              Xmeanvel[project,:,:] = pb.plot.sph.image(h1.s, qty='vz',       units = 'km s**-1',   width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
-              Xstd[project,:,:]     = pb.plot.sph.image(h1.s, qty='v_disp',  units = 'km s**-1',   width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
-              XDMmass[project,:,:]  = pb.plot.sph.image(h1.d, qty='mass',     units = 'Msol',       width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
+              Xcount[project,:,:]   = pb.plot.sph.image(h1.s, qty='rho',     units = 'Msol kpc**-2',  width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
+              Xmeanvel[project,:,:] = pb.plot.sph.image(h1.s, qty='vz',       units = 'km s**-1',     width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
+              Xstd[project,:,:]     = pb.plot.sph.image(h1.s, qty='vz_disp',  units = 'km s**-1',      width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
+              XDMmass[project,:,:]  = pb.plot.sph.image(h1.d, qty='rho',     units = 'Msol kpc**-2',  width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
             except Exception as e:
                 error_message = f"Exception at galaxy {galname}, projection {project} with hlr {hlr_proj_cumsum}, which has {n_stars} stars: {e}\n"
-                with open(exceptions_file_path, "w") as log_file:
+                with open(exceptions_file_path, "a") as log_file:
                   log_file.write(error_message)
                   print(error_message) 
 
