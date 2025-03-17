@@ -6,6 +6,16 @@ import pandas as pd
 import warnings
 import math
 
+import scipy
+
+def test_map(h, xmax, mapbins, name):
+  hlr = pb.analysis.luminosity.half_light_r(h.s, mode = 'number', cylindrical = True)
+  a = pb.plot.sph.image(h.d, qty='rho', units = 'Msol kpc**-2', width = f"{2*xmax*hlr} kpc", resolution = mapbins, log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
+  b = scipy.stats.binned_statistic_2d(h.d['x'], h.d['y'], h.d['rho'], statistic = 'mean', bins = mapbins, range = [[-xmax*hlr, xmax*hlr], [-xmax*hlr, xmax*hlr]])
+  np.save(name+'_map', a)
+  np.save(name+'_binned', b.statistic)
+  return
+
 mapbins = 48
 
 def new_bw(self):
@@ -150,19 +160,16 @@ for i in range(startindex, endindex):
   new_gal_data = pd.DataFrame(columns = headers)
 
   galname = gal_data['Galaxy'][i]
-  
-  if galname == 'g1.54e13h82':
-    continue
-
 
   galpath = paths[i]
-
-  print(galname)
 
   galname_original = galname
 
   halonumstr = galname[galname.rfind('h')+1:]
   halonum = int(halonumstr)
+
+  print(galname, halonumstr)
+
   galname = galname[:galname.rfind('h')]
   
 
@@ -186,10 +193,14 @@ for i in range(startindex, endindex):
       
       pb.analysis.halo.center(h1)
 
+      #test_map(h1, 2, mapbins, "{galname_original}_centered")
+
       try:
         h1 = h1[h1['r']<h1.properties['Rvir']]
       except:
         h1 = h1[h1['r']<h1.properties['Rhalo']]
+
+      #test_map(h1, 2, mapbins, "{galname_original}_centered_rhalo")
 
       try:
         h1.s = h1.s[h1.s['aform']>0.]
@@ -199,11 +210,15 @@ for i in range(startindex, endindex):
         except:
           print('Could not separate wind particles')
 
+      #test_map(h1, 2, mapbins, "{galname_original}_centered_rhalo_nowind")
+
 
       try:
         pb.analysis.angmom.faceon(h1, use_stars = True)
       except:
         pb.analysis.angmom.faceon(h1, use_stars = False)
+
+      #test_map(h1, 2, mapbins, "{galname_original}_centered_rhalo_nowind_faceon")
 
 
       current_halo = halonumstr
@@ -227,6 +242,12 @@ for i in range(startindex, endindex):
   Xcount = np.ones((N_sphere_points,mapbins,mapbins))*np.nan
   XDMmass = np.ones((N_sphere_points,mapbins,mapbins))*np.nan
   Xstd = np.ones((N_sphere_points,mapbins,mapbins))*np.nan
+
+  Xmeanvel_binned = np.ones((N_sphere_points,mapbins,mapbins))*np.nan
+  Xcount_binned = np.ones((N_sphere_points,mapbins,mapbins))*np.nan
+  XDMmass_binned = np.ones((N_sphere_points,mapbins,mapbins))*np.nan
+  Xstd_binned = np.ones((N_sphere_points,mapbins,mapbins))*np.nan
+  Xstd_binned_alt = np.ones((N_sphere_points,mapbins,mapbins))*np.nan
 
   for project in range(n_projs_computed,n_project):
 
@@ -252,15 +273,23 @@ for i in range(startindex, endindex):
 
             #try:
             hlr_proj_cumsum = pb.analysis.luminosity.half_light_r(h1.s,cylindrical=True,mode='number')
+
+            #test_map(h1, 2, mapbins, "{galname_original}_centered_rhalo_nowind_faceon_proj{project}")
             r_arr1 = hlr_proj_cumsum*r_array
             
-            xmax = 1
+            xmax = 3
 
             try:
-              Xcount[project,:,:]   = pb.plot.sph.image(h1.s, qty='rho',     units = 'Msol kpc**-2',  width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
-              Xmeanvel[project,:,:] = pb.plot.sph.image(h1.s, qty='vz',       units = 'km s**-1',     width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
-              Xstd[project,:,:]     = pb.plot.sph.image(h1.s, qty='vz_disp',  units = 'km s**-1',      width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
-              XDMmass[project,:,:]  = pb.plot.sph.image(h1.d, qty='rho',     units = 'Msol kpc**-2',  width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
+              Xcount[project,:,:]   = pb.plot.sph.image(h1.s, qty='rho',     units = 'Msol kpc**-2',  width = f"{(xmax*2*hlr_proj_cumsum)} kpc",  resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
+              Xmeanvel[project,:,:] = pb.plot.sph.image(h1.s, qty='vz',      units = 'km s**-1',      width = f"{(xmax*2*hlr_proj_cumsum)} kpc",  resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
+              Xstd[project,:,:]     = pb.plot.sph.image(h1.s, qty='vz_disp', units = 'km s**-1',      width = f"{(xmax*2*hlr_proj_cumsum)} kpc", resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
+              XDMmass[project,:,:]  = pb.plot.sph.image(h1.d, qty='rho',     units = 'Msol kpc**-2',  width = f"{(xmax*2*hlr_proj_cumsum)} kpc",  resolution = mapbins,  log = False, noplot = True, return_image = False, return_array = True, fill_nan = False)
+
+              Xcount_binned[project,:,:]   = scipy.stats.binned_statistic_2d(h1.s['x'], h1.s['y'], h1.s['rho'], statistic = 'mean', bins = mapbins, range = [[-xmax*hlr_proj_cumsum, xmax*hlr_proj_cumsum], [-xmax*hlr_proj_cumsum, xmax*hlr_proj_cumsum]]).statistic
+              Xmeanvel_binned[project,:,:] = scipy.stats.binned_statistic_2d(h1.s['x'], h1.s['y'], h1.s['vz'], statistic = 'mean', bins = mapbins, range = [[-xmax*hlr_proj_cumsum, xmax*hlr_proj_cumsum], [-xmax*hlr_proj_cumsum, xmax*hlr_proj_cumsum]]).statistic
+              Xstd_binned[project,:,:]     = scipy.stats.binned_statistic_2d(h1.s['x'], h1.s['y'], h1.s['vz'], statistic = 'std', bins = mapbins, range = [[-xmax*hlr_proj_cumsum, xmax*hlr_proj_cumsum], [-xmax*hlr_proj_cumsum, xmax*hlr_proj_cumsum]]).statistic
+              Xstd_binned_alt[project,:,:]     = scipy.stats.binned_statistic_2d(h1.s['x'], h1.s['y'], h1.s['vz_disp'], statistic = 'mean', bins = mapbins, range = [[-xmax*hlr_proj_cumsum, xmax*hlr_proj_cumsum], [-xmax*hlr_proj_cumsum, xmax*hlr_proj_cumsum]]).statistic
+              XDMmass_binned[project,:,:]  = scipy.stats.binned_statistic_2d(h1.d['x'], h1.d['y'], h1.d['rho'], statistic = 'mean', bins = mapbins, range = [[-xmax*hlr_proj_cumsum, xmax*hlr_proj_cumsum], [-xmax*hlr_proj_cumsum, xmax*hlr_proj_cumsum]]).statistic
             except Exception as e:
                 error_message = f"Exception at galaxy {galname}, projection {project} with hlr {hlr_proj_cumsum}, which has {n_stars} stars: {e}\n"
                 with open(exceptions_file_path, "a") as log_file:
@@ -296,3 +325,13 @@ for i in range(startindex, endindex):
   np.save(main_file_folder + 'Maps_Dispersion_NIHAO_noPDF_DMmap_SPH/file_Xcount'+str(i), Xcount)
 
   np.save(main_file_folder + 'Maps_Dispersion_NIHAO_noPDF_DMmap_SPH/file_XDMmass'+str(i), XDMmass)
+
+  np.save(main_file_folder + 'Maps_Dispersion_NIHAO_noPDF_DMmap_SPH/file_Xstd_binned'+str(i), Xstd_binned)
+
+  np.save(main_file_folder + 'Maps_Dispersion_NIHAO_noPDF_DMmap_SPH/file_Xvel_binned'+str(i), Xmeanvel_binned)
+
+  np.save(main_file_folder + 'Maps_Dispersion_NIHAO_noPDF_DMmap_SPH/file_Xcount_binned'+str(i), Xcount_binned)
+
+  np.save(main_file_folder + 'Maps_Dispersion_NIHAO_noPDF_DMmap_SPH/file_XDMmass_binned'+str(i), XDMmass_binned)
+
+  np.save(main_file_folder + 'Maps_Dispersion_NIHAO_noPDF_DMmap_SPH/file_Xstd_binned_alt'+str(i), Xstd_binned_alt)

@@ -21,7 +21,7 @@ def stdnorm(arr, accept_nans = False):
 
 
 class CustomDataset(Dataset):
-    def __init__(self, folder_path, name_roots, N, N_aug, N_total_aug, device='cpu'):
+    def __init__(self, folder_path, name_roots, N, N_aug, allow_nans, device='cpu'):
         """
         Args:
             folder_path (str): Path to the folder containing the .npy files.
@@ -35,6 +35,7 @@ class CustomDataset(Dataset):
         self.N = N
         self.N_aug = N_aug
         self.device = device
+        self.allow_nans = allow_nans
         self.data = self._load_data()
 
     def _load_data(self):
@@ -48,7 +49,10 @@ class CustomDataset(Dataset):
                 file_path = os.path.join(self.folder_path, f"{name_root}{i}.npy")
                 if os.path.exists(file_path):
                     array = np.load(file_path)  # Shape: (32, 48, 48)
-                    valid_indices = list(np.where(np.all(~np.isnan(array), axis = (1,2)))[0])
+                    if self.allow_nans:
+                        valid_indices = list(range(array.shape[0]))
+                    else:
+                        valid_indices = list(np.where(np.all(~np.isnan(array), axis = (1,2)))[0])
                     if name_root == self.name_roots[0]:
                         indices = np.random.choice(list(valid_indices), np.min((self.N_aug, len(valid_indices))), replace=False)
                         for idx in indices:
@@ -91,22 +95,27 @@ class CustomDataset(Dataset):
         # Postprocess each map
         for i in range(len(dm_maps)):
             # Count map: Divide by the maximum value in the map
-            count_maps[i] = minmaxnorm(count_maps[i])
+            count_maps[i] = minmaxnorm(count_maps[i], accept_nans=self.allow_nans)
             
             # DM map: Take the base 10 logarithm and divide by the maximum value in the map
             dm_maps[i] = np.log10(dm_maps[i])
-            dm_maps[i] = minmaxnorm(dm_maps[i])
+            dm_maps[i] = minmaxnorm(dm_maps[i], accept_nans=self.allow_nans)
 
             # Vel map: Divide by the maximum absolute value across all vel maps and replace NaNs with -2
             #max_abs_vel = np.nanmax(np.abs(vel_maps))
             #vel_maps[i] = vel_maps[i] / max_abs_vel
-            vel_maps[i] = minmaxnorm(vel_maps[i])
+            vel_maps[i] = minmaxnorm(vel_maps[i], accept_nans=self.allow_nans)
 
             # Std map: Divide by the maximum absolute value across all std maps and replace NaNs with -2
             #max_abs_std = np.nanmax(np.abs(std_maps))
             #std_maps[i] = std_maps[i] / max_abs_std
-            std_maps[i] = minmaxnorm(std_maps[i])
+            std_maps[i] = minmaxnorm(std_maps[i], accept_nans=self.allow_nans)
 
+            if allow_nans:
+                count_maps[i] = np.nan_to_num(count_maps[i], nan=-1)
+                dm_maps[i] = np.nan_to_num(dm_maps[i], nan=-1)
+                vel_maps[i] = np.nan_to_num(vel_maps[i], nan=-1)
+                std_maps[i] = np.nan_to_num(std_maps[i], nan=-1)
 
     def __len__(self):
         return len(self.data[self.name_roots[0]])
@@ -115,11 +124,9 @@ class CustomDataset(Dataset):
         # Get DMmap as 1x48x48 tensor
         dm_map = torch.tensor(self.data['file_XDMmass'][idx], dtype=torch.float32).unsqueeze(0)  # Shape: (1, 48, 48)
         
-        # Get the other 3 arrays as 3x48x48 tensor
+        # Get the other arrays except for 'file_XDMmass' as a 3x48x48 tensor
         other_arrays = np.stack([
-            self.data['file_Xvel'][idx],
-            self.data['file_Xcount'][idx],
-            self.data['file_Xstd'][idx]
+            self.data[name_root][idx] for name_root in self.name_roots if name_root != 'file_XDMmass'
         ], axis=0)  # Shape: (3, 48, 48)
         other_arrays = torch.tensor(other_arrays, dtype=torch.float32)
         
@@ -128,7 +135,6 @@ class CustomDataset(Dataset):
         other_arrays = other_arrays.to(self.device)
         
         return dm_map, other_arrays
-
 
 def plot_dataset_element(dataset, idx, cmap='viridis'):
     """
@@ -144,10 +150,10 @@ def plot_dataset_element(dataset, idx, cmap='viridis'):
     
     # Convert tensors to numpy arrays
     dm_map_np = dm_map.cpu().numpy().squeeze()  # Shape: (48, 48)
-    other_arrays_np = other_arrays.cpu().numpy()  # Shape: (3, 48, 48)
+    other_arrays_np = other_arrays.cpu().numpy()  # Shape: (N, 48, 48)
     
     # Create a figure with subplots
-    fig, axes = plt.subplots(1, 4, figsize=(20, 5))
+    fig, axes = plt.subplots(1, other_arrays_np.shape[0] + 1, figsize=(5 * (other_arrays_np.shape[0] + 1), 5))
     
     # Plot DMmap
     ax = axes[0]
@@ -159,9 +165,8 @@ def plot_dataset_element(dataset, idx, cmap='viridis'):
     ax.set_title('DMmap')
     fig.colorbar(im, ax=ax, orientation='vertical')
     
-    # Plot the other 3 arrays
-    titles = ['Xvel', 'Xcount', 'Xstd']
-    for i in range(3):
+    # Plot the other arrays
+    for i in range(other_arrays_np.shape[0]):
         ax = axes[i + 1]
         array_np = other_arrays_np[i]
         masked_array = np.ma.masked_where(np.isnan(array_np), array_np)
@@ -169,23 +174,24 @@ def plot_dataset_element(dataset, idx, cmap='viridis'):
         if np.isnan(array_np).any():
             nan_mask = np.isnan(array_np)
             ax.imshow(np.where(nan_mask, 1, np.nan), cmap='Reds', alpha=0.5, interpolation='none')
-        ax.set_title(titles[i])
+        ax.set_title(f'Array {i + 1}')
         fig.colorbar(im, ax=ax, orientation='vertical')
     
     plt.tight_layout()
     plt.show()
 
 
-#folder_path = '/home/jsarrato/Physics/PhD/Paper-DiffusionDM/Maps_Dispersion_NIHAO_noPDF_DMmap_SPH'
+folder_path = '/home/jsarrato/Physics/PhD/Paper-DiffusionDM/newmaps'
 # Example usage:
-folder_path = '/net/debut/scratch/jsarrato/Wolf_for_FIRE/work/Maps_Dispersion_NIHAO_noPDF_DMmap_SPH'
-name_roots = ['file_XDMmass', 'file_Xvel', 'file_Xcount', 'file_Xstd']
+#folder_path = '/net/debut/scratch/jsarrato/Wolf_for_FIRE/work/Maps_Dispersion_NIHAO_noPDF_DMmap_SPH'
+name_roots = ['file_XDMmass', 'file_Xvel', 'file_Xcount', 'file_Xstd','file_XDMmass_binned', 'file_Xvel_binned', 'file_Xcount_binned', 'file_Xstd_binned', 'file_Xstd_binned_alt']
 N = 500  # Number of files to read for each type
 N_aug = 32  # Number of augmentations to select from each file
 N_total_aug = 32
+allow_nans = True
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-dataset = CustomDataset(folder_path, name_roots, N, N_aug, N_total_aug, device)
+dataset = CustomDataset(folder_path, name_roots, N, N_aug, allow_nans, device)
 
 print(np.any(np.isnan(dataset.data['file_XDMmass'])))
 print(np.any(np.isnan(dataset.data['file_Xvel'])))
