@@ -21,7 +21,7 @@ def stdnorm(arr, accept_nans = False):
 
 
 class CustomDataset(Dataset):
-    def __init__(self, folder_path, name_roots, N, N_aug, allow_nans, device='cpu'):
+    def __init__(self, folder_path, name_roots, N, N_aug, allow_nans, device='cpu', binned = True):
         """
         Args:
             folder_path (str): Path to the folder containing the .npy files.
@@ -36,6 +36,7 @@ class CustomDataset(Dataset):
         self.N_aug = N_aug
         self.device = device
         self.allow_nans = allow_nans
+        self.binned = binned
         self.data = self._load_data()
 
     def _load_data(self):
@@ -87,10 +88,16 @@ class CustomDataset(Dataset):
             data (dict): Dictionary containing raw maps for each name root.
         """
         # Get all maps
-        dm_maps = data['file_XDMmass']  # Shape: (N * N_aug, 48, 48)
-        vel_maps = data['file_Xvel']    # Shape: (N * N_aug, 48, 48)
-        count_maps = data['file_Xcount']  # Shape: (N * N_aug, 48, 48)
-        std_maps = data['file_Xstd']    # Shape: (N * N_aug, 48, 48)
+        if self.binned:
+            dm_maps = data['file_XDMmass_binned']  # Shape: (N * N_aug, 48, 48)
+            vel_maps = data['file_Xvel_binned']    # Shape: (N * N_aug, 48, 48)
+            count_maps = data['file_Xcount_binned']  # Shape: (N * N_aug, 48, 48)
+            std_maps = data['file_Xstd_binned']    # Shape: (N * N_aug, 48, 48)
+        else:
+            dm_maps = data['file_XDMmass']  # Shape: (N * N_aug, 48, 48)
+            vel_maps = data['file_Xvel']    # Shape: (N * N_aug, 48, 48)
+            count_maps = data['file_Xcount']  # Shape: (N * N_aug, 48, 48)
+            std_maps = data['file_Xstd']    # Shape: (N * N_aug, 48, 48)
         
         # Postprocess each map
         for i in range(len(dm_maps)):
@@ -122,11 +129,12 @@ class CustomDataset(Dataset):
 
     def __getitem__(self, idx):
         # Get DMmap as 1x48x48 tensor
-        dm_map = torch.tensor(self.data['file_XDMmass'][idx], dtype=torch.float32).unsqueeze(0)  # Shape: (1, 48, 48)
+        mass_str = 'file_XDMmass_binned' if self.binned else 'file_XDMmass'
+        dm_map = torch.tensor(self.data[mass_str][idx], dtype=torch.float32).unsqueeze(0)  # Shape: (1, 48, 48)
         
         # Get the other arrays except for 'file_XDMmass' as a 3x48x48 tensor
         other_arrays = np.stack([
-            self.data[name_root][idx] for name_root in self.name_roots if name_root != 'file_XDMmass'
+            self.data[name_root][idx] for name_root in self.name_roots if name_root != mass_str
         ], axis=0)  # Shape: (3, 48, 48)
         other_arrays = torch.tensor(other_arrays, dtype=torch.float32)
         
@@ -136,7 +144,7 @@ class CustomDataset(Dataset):
         
         return dm_map, other_arrays
 
-def plot_dataset_element(dataset, idx, cmap='viridis'):
+def plot_dataset_element(dataset, idx, cmap='viridis', minmax = True ):
     """
     Plots the arrays for a given element of the dataset.
 
@@ -145,6 +153,11 @@ def plot_dataset_element(dataset, idx, cmap='viridis'):
         idx (int): Index of the element to plot.
         cmap (str): Colormap to use for the images.
     """
+
+    if minmax:
+        cmap = plt.get_cmap(cmap).copy()
+        cmap.set_under('white')  # Values under vmin will be white
+
     # Get the element from the dataset
     dm_map, other_arrays = dataset[idx]
     
@@ -158,7 +171,10 @@ def plot_dataset_element(dataset, idx, cmap='viridis'):
     # Plot DMmap
     ax = axes[0]
     masked_dm_map = np.ma.masked_where(np.isnan(dm_map_np), dm_map_np)
-    im = ax.imshow(masked_dm_map, cmap=cmap, interpolation='none')
+    if minmax:
+        im = ax.imshow(masked_dm_map, cmap=cmap, interpolation='none', vmin = 0, vmax = 1)
+    else:
+        im = ax.imshow(masked_dm_map, cmap=cmap, interpolation='none')
     if np.isnan(dm_map_np).any():
         nan_mask = np.isnan(dm_map_np)
         ax.imshow(np.where(nan_mask, 1, np.nan), cmap='Reds', alpha=0.5, interpolation='none')
@@ -170,7 +186,10 @@ def plot_dataset_element(dataset, idx, cmap='viridis'):
         ax = axes[i + 1]
         array_np = other_arrays_np[i]
         masked_array = np.ma.masked_where(np.isnan(array_np), array_np)
-        im = ax.imshow(masked_array, cmap=cmap, interpolation='none')
+        if minmax:
+            im = ax.imshow(masked_array, cmap=cmap, interpolation='none', vmin = 0 ,vmax = 1)
+        else:
+            im = ax.imshow(masked_array, cmap=cmap, interpolation='none')
         if np.isnan(array_np).any():
             nan_mask = np.isnan(array_np)
             ax.imshow(np.where(nan_mask, 1, np.nan), cmap='Reds', alpha=0.5, interpolation='none')
@@ -184,20 +203,27 @@ def plot_dataset_element(dataset, idx, cmap='viridis'):
 folder_path = '/home/jsarrato/Physics/PhD/Paper-DiffusionDM/newmaps'
 # Example usage:
 #folder_path = '/net/debut/scratch/jsarrato/Wolf_for_FIRE/work/Maps_Dispersion_NIHAO_noPDF_DMmap_SPH'
-name_roots = ['file_XDMmass', 'file_Xvel', 'file_Xcount', 'file_Xstd','file_XDMmass_binned', 'file_Xvel_binned', 'file_Xcount_binned', 'file_Xstd_binned', 'file_Xstd_binned_alt']
-N = 500  # Number of files to read for each type
-N_aug = 32  # Number of augmentations to select from each file
-N_total_aug = 32
+#name_roots = ['file_XDMmass', 'file_Xvel', 'file_Xcount', 'file_Xstd','file_XDMmass_binned', 'file_Xvel_binned', 'file_Xcount_binned', 'file_Xstd_binned', 'file_Xstd_binned_alt']
+name_roots = ['file_XDMmass_binned', 'file_Xvel_binned', 'file_Xcount_binned', 'file_Xstd_binned']
+
+N = 1000  # Number of files to read for each type
+N_aug = 16  # Number of augmentations to select from each file
 allow_nans = True
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-dataset = CustomDataset(folder_path, name_roots, N, N_aug, allow_nans, device)
+binned = True
+dataset = CustomDataset(folder_path, name_roots, N, N_aug, allow_nans, device = device, binned = binned)
 
-print(np.any(np.isnan(dataset.data['file_XDMmass'])))
-print(np.any(np.isnan(dataset.data['file_Xvel'])))
-print(np.any(np.isnan(dataset.data['file_Xcount'])))
-print(np.any(np.isnan(dataset.data['file_Xstd'])))
-
+if binned:
+    print(np.any(np.isnan(dataset.data['file_XDMmass_binned'])))
+    print(np.any(np.isnan(dataset.data['file_Xvel_binned'])))
+    print(np.any(np.isnan(dataset.data['file_Xcount_binned'])))
+    print(np.any(np.isnan(dataset.data['file_Xstd_binned'])))
+else:
+    print(np.any(np.isnan(dataset.data['file_XDMmass'])))
+    print(np.any(np.isnan(dataset.data['file_Xvel'])))
+    print(np.any(np.isnan(dataset.data['file_Xcount'])))
+    print(np.any(np.isnan(dataset.data['file_Xstd'])))
 # Example usage:
 # Assuming `dataset` is already created using the CustomDataset class
 plot_dataset_element(dataset, idx=0)  # Plot the first element in the dataset
